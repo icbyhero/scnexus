@@ -5,8 +5,11 @@ import { app } from "electron";
 import Store from "electron-store";
 import { ProfileStore } from "@scnexus/app-shared/stores/profile.store";
 
+import { getDocumentsPaths, getGameMapsDirName } from "@/modules/profile/platform";
+
 const appDataRoot = app.getPath("userData");
 const documentRoot = app.getPath("documents");
+const mapsDir = getGameMapsDirName();
 
 if (!existsSync(appDataRoot)) {
   mkdirSync(appDataRoot);
@@ -24,16 +27,15 @@ const defaultProfile: ProfileStore = {
     GAME_MODS_PATH: "",
     GAME_MAPS_PATH: "",
   },
-  PROFILE_DOCUMENTS: {
-    DOCUMENTS_ROOT: join(documentRoot, "StarCraft II"),
-    DOCUMENTS_LOCAL_BANKS_ROOT: "Banks",
-    DOCUMENTS_ARCADE_BANKS_ROOT: "ArcadeBanks",
-  },
+  PROFILE_DOCUMENTS: getDocumentsPaths({
+    homeDir: app.getPath("home"),
+    documentsDir: documentRoot,
+  }),
   PROFILE_CAMPAIGN: {
     LIBRARY_ROOT: "SCNexusCampaign",
-    CCM_ROOT: join("Maps", "CustomCampaigns"),
+    CCM_ROOT: join(mapsDir, "CustomCampaigns"),
     MODS_ROOT: "Mods",
-    MAPS_ROOT: "Maps",
+    MAPS_ROOT: mapsDir,
     WOL_ROOT: "Campaign",
     HOTS_ROOT: join("Campaign", "swarm"),
     HOTS_EVO_ROOT: join("Campaign", "swarm", "evolution"),
@@ -44,7 +46,7 @@ const defaultProfile: ProfileStore = {
   PROFILE_CUSTOMIZE: {
     LIBRARY_ROOT: "SCNexusCustomize",
     MODS_ROOT: "Mods",
-    MAPS_ROOT: "Maps",
+    MAPS_ROOT: mapsDir,
   },
 };
 
