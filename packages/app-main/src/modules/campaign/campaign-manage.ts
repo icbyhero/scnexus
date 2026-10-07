@@ -35,10 +35,17 @@ async function CampaignListTypeSearcher(campaignType: CampaignType) {
     withFileTypes: true,
   });
   for (const dir of dirs) {
-    if (!dir.isDirectory()) return;
+    if (!dir.isDirectory()) continue;
 
     const pathMetadata = join(campaignLibraryRoot, dir.name, "metadata.json");
-    const metadata = await scnexusMetaFileParser(pathMetadata);
+    // 缺少或无法解析 metadata 的目录直接跳过，
+    // 不能让单个坏目录导致整次列表刷新失败。
+    let metadata;
+    try {
+      metadata = await scnexusMetaFileParser(pathMetadata);
+    } catch {
+      continue;
+    }
     if (
       !metadata ||
       metadata.type !== "Campaign" ||

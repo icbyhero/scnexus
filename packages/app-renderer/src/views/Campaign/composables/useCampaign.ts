@@ -211,7 +211,9 @@ export async function uninstallCampaign(infor: MetadataInformated) {
         console.log(error);
         return;
       }
-      await syncCampaignLists();
+      // 卸载删除的是磁盘文件，必须重新扫描磁盘并写回缓存；
+      // syncCampaignLists 只读取旧缓存，会导致已卸载的战役仍显示。
+      await updateCampaignLists();
       notification.info({
         title: t("campaign.message.campaign-uninstalled", {
           campaign: infor.name,
