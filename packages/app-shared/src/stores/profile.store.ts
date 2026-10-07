@@ -3,7 +3,7 @@ import {
   ProfileCustomize,
   ProfileDocuments,
   ProfileGame,
-} from "@/types/profile.type";
+} from "../types/profile.type";
 
 export type ProfileStore = {
   SUCCESS: boolean;

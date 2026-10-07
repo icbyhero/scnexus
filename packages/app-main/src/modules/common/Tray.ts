@@ -9,7 +9,7 @@ export function initTray() {
   if (tray) return tray;
 
   const trayIcon = nativeImage.createFromPath(
-    join(process.env.PUBLIC, "application_icon.png")
+    join(process.env.PUBLIC ?? "", "application_icon.png")
   );
 
   tray = new Tray(trayIcon);
