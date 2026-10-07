@@ -122,30 +122,26 @@ export async function unzipCompressFileSimulateCCM(
       throw new Error(UNCOMPRESSING_ERROR);
     });
 
-  const modsPath: string = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
-
   const files = await readdir(targetPath, {
     encoding: "utf-8",
     recursive: true,
   });
 
-  const movedMods: string[] = [];
+  const packagedMods: string[] = [];
 
   for (const file of files) {
     if (file.endsWith(".SC2Mod") || file.endsWith(".sc2mod")) {
-      const modName = basename(file);
-      const dest = join(modsPath, modName);
-      await rmIfExist(dest);
-      await rename(join(targetPath, file), dest);
-      movedMods.push(modName);
+      // 模组保留在包内，不再移动到游戏根 Mods；
+      // 每次激活时从此处强制覆盖复制，保证同名不同内容的模组与激活的战役一致。
+      packagedMods.push(basename(file));
     }
   }
 
-  // 记录被移入游戏根 Mods 目录的模组，卸载时据此做引用计数清理。
+  // 记录包内模组，供后续清理逻辑使用。
   await mkdir(join(targetPath, ".scnexus"), { recursive: true });
   await writeFile(
     join(targetPath, ".scnexus", "manifest.json"),
-    JSON.stringify({ mods: movedMods })
+    JSON.stringify({ mods: packagedMods })
   );
 
   return {
@@ -205,30 +201,26 @@ export async function unzipCompressFile7zSimulateCCM(
     });
   }
 
-  const modsPath: string = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
-
   const files = await readdir(targetPath, {
     encoding: "utf-8",
     recursive: true,
   });
 
-  const movedMods: string[] = [];
+  const packagedMods: string[] = [];
 
   for (const file of files) {
     if (file.endsWith(".SC2Mod") || file.endsWith(".sc2mod")) {
-      const modName = basename(file);
-      const dest = join(modsPath, modName);
-      await rmIfExist(dest);
-      await rename(join(targetPath, file), dest);
-      movedMods.push(modName);
+      // 模组保留在包内，不再移动到游戏根 Mods；
+      // 每次激活时从此处强制覆盖复制，保证同名不同内容的模组与激活的战役一致。
+      packagedMods.push(basename(file));
     }
   }
 
-  // 记录被移入游戏根 Mods 目录的模组，卸载时据此做引用计数清理。
+  // 记录包内模组，供后续清理逻辑使用。
   await mkdir(join(targetPath, ".scnexus"), { recursive: true });
   await writeFile(
     join(targetPath, ".scnexus", "manifest.json"),
-    JSON.stringify({ mods: movedMods })
+    JSON.stringify({ mods: packagedMods })
   );
 
   return {

@@ -1,4 +1,4 @@
-import { join, basename } from "node:path";
+import { join, basename, relative, sep } from "node:path";
 import { readdir, copyFile, cp } from "node:fs/promises";
 
 import { CampaignType, MetadataInformated } from "scnexus-standard/metadata";
@@ -6,6 +6,7 @@ import {
   rmDirWhitely,
   rmFilesFromDirWhitely,
 } from "../customize/customize-util";
+import { rmIfExist } from "@/utils/fs-util";
 import { profileStore } from "@/stores/profile";
 import { getProfileStoreCampaignTypeRoot } from "../profile/profile-util";
 
@@ -106,6 +107,30 @@ export async function copyinCampaignFilesCCM(
   const modsRoot = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
   const campaignRoot = getProfileStoreCampaignTypeRoot(infor.campaign);
   if (!campaignRoot) return;
+
+  // 从包根递归找出全部模组，每次激活都强制覆盖复制到游戏根 Mods。
+  // 两个战役可能携带同名但内容不同的模组，因此不能依赖安装时的一次性复制。
+  const ccmRoot = profileStore.get("PROFILE_CAMPAIGN").CCM_ROOT;
+  const pkgSegment = relative(
+    ccmRoot,
+    infor.localinfo.metadata_path
+  ).split(sep)[0];
+  if (!pkgSegment || pkgSegment === "..") return;
+  const pkgRoot = join(ccmRoot, pkgSegment);
+
+  const pkgFiles = await readdir(pkgRoot, {
+    encoding: "utf-8",
+    recursive: true,
+  });
+  for (const rel of pkgFiles) {
+    if (rel.endsWith(".SC2Mod") || rel.endsWith(".sc2mod")) {
+      const modName = basename(rel);
+      const dest = join(modsRoot, modName);
+      // 先删除目标再复制，确保同名模组不会残留旧版本的多余文件。
+      await rmIfExist(dest);
+      await cp(join(pkgRoot, rel), dest, { recursive: true });
+    }
+  }
 
   const CopyFilesMatched = async (
     file_name: string,

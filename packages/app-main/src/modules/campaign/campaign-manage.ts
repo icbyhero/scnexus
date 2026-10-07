@@ -1,5 +1,5 @@
 import { join, relative, sep } from "node:path";
-import { readFile, readdir } from "node:fs/promises";
+import { readdir } from "node:fs/promises";
 
 import { getCampaignStore, updateCampaignStore } from "@/stores/campaign";
 import {
@@ -174,48 +174,6 @@ function isSameCampaign(
   return a.manager === b.manager && a.name === b.name && a.version === b.version;
 }
 
-/**
- * 删除安装时被移入游戏根 Mods 目录的模组；
- * 若同名模组仍被其他已安装包引用，则保留（引用计数），
- * 避免两个模组共享依赖时卸载其一会破坏另一个。
- */
-async function removeMovedModsWithRefCount(pkgRoot: string) {
-  let manifest: { mods?: string[] };
-  try {
-    manifest = JSON.parse(
-      await readFile(join(pkgRoot, ".scnexus", "manifest.json"), "utf8")
-    );
-  } catch {
-    return; // 旧版本安装的包没有清单，无法追溯
-  }
-
-  const mods = manifest.mods ?? [];
-  if (mods.length === 0) return;
-
-  const ccmRoot = profileStore.get("PROFILE_CAMPAIGN").CCM_ROOT;
-  const referenced = new Set<string>();
-
-  for (const dirent of await readdir(ccmRoot, { withFileTypes: true })) {
-    if (!dirent.isDirectory()) continue;
-    const otherPkg = join(ccmRoot, dirent.name);
-    if (otherPkg === pkgRoot) continue;
-    try {
-      const other: { mods?: string[] } = JSON.parse(
-        await readFile(join(otherPkg, ".scnexus", "manifest.json"), "utf8")
-      );
-      for (const m of other.mods ?? []) referenced.add(m);
-    } catch {
-      // 其他包无清单，无法判断引用，不做保守保留之外的处理
-    }
-  }
-
-  const modsRoot = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
-  for (const mod of mods) {
-    if (referenced.has(mod)) continue;
-    await rmDirWhitely(join(modsRoot, mod));
-  }
-}
-
 export async function uninstallCampiagnFiles(
   infor: MetadataInformated
 ): Promise<void> {
@@ -247,8 +205,7 @@ export async function uninstallCampiagnFiles(
     }
   }
 
-  // 清理移入游戏根 Mods 的模组（共享依赖自动保留）
-  await removeMovedModsWithRefCount(pkgRoot);
+  // 模组清理暂时不做：卸载/取消激活后游戏根 Mods 中的文件保留。
 
   // 删除整个包目录，而不仅仅是 metadata 所在的那一层
   await rmDirWhitely(pkgRoot);
