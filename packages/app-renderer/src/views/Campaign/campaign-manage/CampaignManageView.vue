@@ -9,6 +9,7 @@ import { ipcShell } from "@/apis/ipcs/shell";
 import {
   activeCampaign,
   uninstallCampaign,
+  updateCampaignLists,
   checkCampaignSwitchable,
 } from "@/views/campaign/composables/useCampaign";
 import { useRouterGo } from "@/composables/useRouterGo";
@@ -35,7 +36,7 @@ const refCampaignStatistics = ref<InstanceType<typeof CampaignStatistics>>();
         <div>{{ $t("campaign.campaign-detail-management") }}</div>
       </div>
       <div class="operation flex flex-row justify-end items-center gap-1">
-        <n-button size="small">
+        <n-button size="small" @click="updateCampaignLists()">
           <template #icon>
             <div class="i-tabler:refresh"></div>
           </template>
