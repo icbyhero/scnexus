@@ -5,6 +5,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest
 
 import {
   detectGameRoot,
+  getAppBundlePath,
   getDocumentsPaths,
   getGameExecutables,
   getGameMapsDirName,
@@ -133,6 +134,22 @@ describe("getGameExecutables", () => {
         join("/Applications/StarCraft II", "Support64", "SC2Editor_x64.exe")
       );
     }
+  });
+});
+
+describe("getAppBundlePath", () => {
+  it("extracts the .app bundle path from an inner executable path", () => {
+    expect(
+      getAppBundlePath(
+        "/Applications/StarCraft II/Support/SC2Switcher.app/Contents/MacOS/SC2Switcher"
+      )
+    ).toBe("/Applications/StarCraft II/Support/SC2Switcher.app");
+  });
+
+  it("returns null for non-bundle paths", () => {
+    expect(
+      getAppBundlePath("C:\\Games\\StarCraft II\\Support64\\SC2Switcher_x64.exe")
+    ).toBe(null);
   });
 });
 

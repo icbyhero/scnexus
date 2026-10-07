@@ -1,5 +1,6 @@
 import { join } from "node:path";
 import { readdir } from "node:fs/promises";
+import { execFile } from "node:child_process";
 
 import { exists } from "@/utils/fs-util";
 
@@ -140,4 +141,50 @@ export function getDocumentsPaths({
     DOCUMENTS_LOCAL_BANKS_ROOT: join(documentsDir, "StarCraft II", "Banks"),
     DOCUMENTS_ARCADE_BANKS_ROOT: join(documentsDir, "StarCraft II", "ArcadeBanks"),
   };
+}
+
+/**
+ * 从 .app 内层可执行文件路径推导 bundle 路径。
+ * ".../Foo.app/Contents/MacOS/Foo" → ".../Foo.app"；非 bundle 路径返回 null。
+ */
+export function getAppBundlePath(executablePath: string): string | null {
+  const marker = ".app/Contents/MacOS/";
+  const index = executablePath.indexOf(marker);
+  if (index === -1) return null;
+  return executablePath.slice(0, index + ".app".length);
+}
+
+/**
+ * 启动应用程序。
+ * darwin：经 LaunchServices 用 `open -n <bundle>` 启动 .app 包（直接执行
+ *   内层二进制可能因工作目录/运行环境问题失败）；命令行参数通过
+ *   `--args` 传递。
+ * 其余平台：直接执行二进制（win32）。
+ *
+ * @param executablePath 内层可执行文件的完整路径
+ * @param args 传给目标程序的命令行参数
+ */
+export function launchApplication(
+  executablePath: string,
+  args: string[] = []
+): Promise<void> {
+  let command = executablePath;
+  let commandArgs = args;
+
+  if (process.platform === "darwin") {
+    const bundlePath = getAppBundlePath(executablePath);
+    if (bundlePath) {
+      // -n: 打开新实例；--args 之后的内容原样传给程序
+      command = "open";
+      commandArgs = ["-n", bundlePath];
+      if (args.length > 0) commandArgs.push("--args", ...args);
+    }
+  }
+
+  return new Promise((resolve, reject) => {
+    execFile(command, commandArgs, (error) => {
+      if (error) reject(error);
+      else resolve();
+    });
+  });
 }
