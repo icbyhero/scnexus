@@ -32,50 +32,58 @@ const onContinuProcess = async () => {
   const vCfi = get(cfi);
   const vMetadata = get(metadata);
 
-  let result = false;
-  if (vMetadata?.manager === "SCNexus") {
-    const { data, error } = await ipcCustomize.installCompressFile7z(vPath!);
-    if (error) {
-      console.error(error);
+  // 用 try/catch/finally 兜底：即使后台调用异常或 Promise 被拒绝，
+  // 也要结束加载状态并关闭弹窗，避免界面永久转圈。
+  try {
+    let result = false;
+    if (vMetadata?.manager === "SCNexus") {
+      const { data, error } = await ipcCustomize.installCompressFile7z(vPath!);
+      if (error) {
+        console.error(error);
+      }
+      if (data) {
+        result = true;
+      }
+    } else if (vMetadata?.manager === "CCM") {
+      const { data, error } = await ipcCampaign.unzipCompressFile7zSimulateCCM(
+        vPath!
+      );
+      if (error) {
+        console.error(error);
+      }
+      if (data) {
+        result = true;
+      }
     }
-    if (data) {
-      result = true;
+    if (result) {
+      emitterEmit("customize-file-unzipped");
+      notification.info({
+        title:
+          t("customize.drop-zone.process-dialog.message-success-title") +
+          vMetadata?.name,
+        content: () =>
+          h("div", { class: "flex flex-col gap-1" }, [
+            h(
+              "div",
+              undefined,
+              t("customize.drop-zone.process-dialog.message-success-content", {
+                count: vCfi!.compress_info.files_count,
+              })
+            ),
+            h(
+              "div",
+              undefined,
+              "共计占用磁盘空间 " +
+                filesize(vCfi!.compress_info.size, { standard: "jedec" })
+            ),
+          ]),
+        duration: 3000,
+      });
     }
-  } else if (vMetadata?.manager === "CCM") {
-    const { data, error } = await ipcCampaign.unzipCompressFile7zSimulateCCM(
-      vPath!
-    );
-    if (error) {
-      console.error(error);
-    }
-    if (data) {
-      result = true;
-    }
-  }
-  if (result) {
-    emitterEmit("customize-file-unzipped");
-    notification.info({
-      title:
-        t("customize.drop-zone.process-dialog.message-success-title") +
-        vMetadata?.name,
-      content: () =>
-        h("div", { class: "flex flex-col gap-1" }, [
-          h(
-            "div",
-            undefined,
-            t("customize.drop-zone.process-dialog.message-success-content", {
-              count: vCfi!.compress_info.files_count,
-            })
-          ),
-          h(
-            "div",
-            undefined,
-            "共计占用磁盘空间 " +
-              filesize(vCfi!.compress_info.size, { standard: "jedec" })
-          ),
-        ]),
-      duration: 3000,
-    });
+  } catch (error) {
+    console.error(error);
+  } finally {
+    set(operationLoading, false);
   }
 };
 
