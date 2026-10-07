@@ -40,6 +40,8 @@ getGameDirectoryPaths(gameRoot)              // Maps/Mods/Campaign/CCM 等目录
 getDocumentsPaths()                          // Banks 等用户数据目录
 ```
 
+`PROFILE_*` 的键名保持不变（受 `@scnexus/app-shared` 类型约束，含 `_X64` 后缀键），仅值按平台生成。
+
 ### 修改的现有文件（Windows 行为零变化）
 
 1. `packages/app-main/src/modules/profile/profile-store.ts` —— darwin 分支调用 `detectGameRoot()`；各 `PROFILE_*` 路径改由 platform 模块按平台生成。
