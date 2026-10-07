@@ -1,6 +1,6 @@
 import { join, basename } from "node:path";
 import { statSync } from "node:fs";
-import { cp, readdir, rename } from "node:fs/promises";
+import { cp, mkdir, readdir, rename, writeFile } from "node:fs/promises";
 
 import { ResultUncompressCCM } from "@scnexus/app-shared/types/campaign.type";
 import {
@@ -129,13 +129,24 @@ export async function unzipCompressFileSimulateCCM(
     recursive: true,
   });
 
+  const movedMods: string[] = [];
+
   for (const file of files) {
     if (file.endsWith(".SC2Mod") || file.endsWith(".sc2mod")) {
-      const dest = join(modsPath, basename(file));
+      const modName = basename(file);
+      const dest = join(modsPath, modName);
       await rmIfExist(dest);
       await rename(join(targetPath, file), dest);
+      movedMods.push(modName);
     }
   }
+
+  // 记录被移入游戏根 Mods 目录的模组，卸载时据此做引用计数清理。
+  await mkdir(join(targetPath, ".scnexus"), { recursive: true });
+  await writeFile(
+    join(targetPath, ".scnexus", "manifest.json"),
+    JSON.stringify({ mods: movedMods })
+  );
 
   return {
     ccm: ccm,
@@ -201,13 +212,24 @@ export async function unzipCompressFile7zSimulateCCM(
     recursive: true,
   });
 
+  const movedMods: string[] = [];
+
   for (const file of files) {
     if (file.endsWith(".SC2Mod") || file.endsWith(".sc2mod")) {
-      const dest = join(modsPath, basename(file));
+      const modName = basename(file);
+      const dest = join(modsPath, modName);
       await rmIfExist(dest);
       await rename(join(targetPath, file), dest);
+      movedMods.push(modName);
     }
   }
+
+  // 记录被移入游戏根 Mods 目录的模组，卸载时据此做引用计数清理。
+  await mkdir(join(targetPath, ".scnexus"), { recursive: true });
+  await writeFile(
+    join(targetPath, ".scnexus", "manifest.json"),
+    JSON.stringify({ mods: movedMods })
+  );
 
   return {
     ccm: ccm,

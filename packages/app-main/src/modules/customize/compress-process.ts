@@ -155,7 +155,7 @@ async function walkDirectory(
   async function walk(dir: string, prefix: string) {
     const items = await readdir(dir, { withFileTypes: true });
     for (const item of items) {
-      if (item.name === ".DS_Store") continue;
+      if (item.name === ".DS_Store" || item.name === ".scnexus") continue;
       const rel = prefix ? `${prefix}/${item.name}` : item.name;
       if (item.isDirectory()) {
         await walk(join(dir, item.name), rel);

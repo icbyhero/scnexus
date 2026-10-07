@@ -1,7 +1,11 @@
-import { join } from "node:path";
-import { readdir } from "node:fs/promises";
+import { join, relative, sep } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
 
 import { getCampaignStore, updateCampaignStore } from "@/stores/campaign";
+import {
+  getCampaignActiveStoreKey,
+  removeStoreActiveCampaign,
+} from "@/stores/campaign-active";
 import {
   CampaignType,
   MetadataInformated,
@@ -16,6 +20,10 @@ import {
 } from "../customize/customize-util";
 import { countPathCompatible } from "@/utils/fs-util";
 import { profileStore } from "@/stores/profile";
+import {
+  cleanCampaignFiles,
+  cleanCampaignFilesCCM,
+} from "./campaign-util";
 
 async function CampaignListTypeSearcher(campaignType: CampaignType) {
   const campaignList: MetadataInformatedList = [];
@@ -152,11 +160,89 @@ export function getCampaignLists() {
   return getCampaignStore();
 }
 
+function isSameCampaign(
+  a: MetadataInformated,
+  b: MetadataInformated
+): boolean {
+  return a.manager === b.manager && a.name === b.name && a.version === b.version;
+}
+
+/**
+ * 删除安装时被移入游戏根 Mods 目录的模组；
+ * 若同名模组仍被其他已安装包引用，则保留（引用计数），
+ * 避免两个模组共享依赖时卸载其一会破坏另一个。
+ */
+async function removeMovedModsWithRefCount(pkgRoot: string) {
+  let manifest: { mods?: string[] };
+  try {
+    manifest = JSON.parse(
+      await readFile(join(pkgRoot, ".scnexus", "manifest.json"), "utf8")
+    );
+  } catch {
+    return; // 旧版本安装的包没有清单，无法追溯
+  }
+
+  const mods = manifest.mods ?? [];
+  if (mods.length === 0) return;
+
+  const ccmRoot = profileStore.get("PROFILE_CAMPAIGN").CCM_ROOT;
+  const referenced = new Set<string>();
+
+  for (const dirent of await readdir(ccmRoot, { withFileTypes: true })) {
+    if (!dirent.isDirectory()) continue;
+    const otherPkg = join(ccmRoot, dirent.name);
+    if (otherPkg === pkgRoot) continue;
+    try {
+      const other: { mods?: string[] } = JSON.parse(
+        await readFile(join(otherPkg, ".scnexus", "manifest.json"), "utf8")
+      );
+      for (const m of other.mods ?? []) referenced.add(m);
+    } catch {
+      // 其他包无清单，无法判断引用，不做保守保留之外的处理
+    }
+  }
+
+  const modsRoot = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
+  for (const mod of mods) {
+    if (referenced.has(mod)) continue;
+    await rmDirWhitely(join(modsRoot, mod));
+  }
+}
+
 export async function uninstallCampiagnFiles(
   infor: MetadataInformated
 ): Promise<void> {
-  if (!infor.localinfo.metadata_path) {
-    return;
+  const metadataPath = infor.localinfo?.metadata_path;
+  if (!metadataPath) return;
+
+  // 计算包根目录：SCNexus 的 metadata.json 位于包根；
+  // CCM 的 metadata.txt 可能嵌套在子目录，取相对 CCM_ROOT 的第一段。
+  let pkgRoot: string;
+  if (infor.manager === "CCM") {
+    const ccmRoot = profileStore.get("PROFILE_CAMPAIGN").CCM_ROOT;
+    const first = relative(ccmRoot, metadataPath).split(sep)[0];
+    if (!first || first === "..") return;
+    pkgRoot = join(ccmRoot, first);
+  } else {
+    pkgRoot = join(metadataPath, "..");
   }
-  await rmDirWhitely(join(infor.localinfo.metadata_path, ".."));
+
+  // 该战役当前处于激活状态：先清理激活时复制到游戏目录的文件
+  if (infor.campaign) {
+    const active = getCampaignActiveStoreKey("CAMPAIGN_SET")[infor.campaign];
+    if (active && isSameCampaign(active, infor)) {
+      if (infor.manager === "SCNexus") {
+        await cleanCampaignFiles(infor);
+      } else {
+        await cleanCampaignFilesCCM(infor);
+      }
+      removeStoreActiveCampaign(infor);
+    }
+  }
+
+  // 清理移入游戏根 Mods 的模组（共享依赖自动保留）
+  await removeMovedModsWithRefCount(pkgRoot);
+
+  // 删除整个包目录，而不仅仅是 metadata 所在的那一层
+  await rmDirWhitely(pkgRoot);
 }
