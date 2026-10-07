@@ -90,13 +90,20 @@ async function CampaignListTypeSearcherCCM(
         };
         return infor;
       }
-    } else {
-      for (const mayDir of files) {
-        if (mayDir.isDirectory()) {
-          return await SearcherCCM(join(path, mayDir.name));
-        }
+      // 找到了 metadata 但战役类型不匹配：该包归属其他战役类型，
+      // 子目录是 SC2 组件，不会再包含 metadata，直接结束此分支。
+      return undefined;
+    }
+
+    // 当前目录没有 metadata：依次搜索所有子目录，而不是只看第一个。
+    for (const mayDir of files) {
+      if (mayDir.isDirectory()) {
+        const infor = await SearcherCCM(join(path, mayDir.name));
+        if (infor) return infor;
       }
     }
+
+    return undefined;
   };
 
   const dirs = await readdir(ccmCampaignLibraryRoot, {
