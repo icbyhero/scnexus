@@ -1,3 +1,4 @@
+import "./bootstrap";
 import { app, Menu, } from "electron";
 import { release } from "node:os";
 import { initModules } from "./modules/init";
