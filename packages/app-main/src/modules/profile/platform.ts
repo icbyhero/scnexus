@@ -44,7 +44,12 @@ export async function isGameRootValid(gameRoot: string): Promise<boolean> {
   const marker = GAME_ROOT_MARKER[process.platform];
   if (!marker) return false;
 
-  const rootFiles = await readdir(gameRoot, { withFileTypes: true });
+  let rootFiles: import("node:fs").Dirent[];
+  try {
+    rootFiles = await readdir(gameRoot, { withFileTypes: true });
+  } catch {
+    return false;
+  }
   return rootFiles.some(
     (dirent) =>
       (marker.type === "file" ? dirent.isFile() : dirent.isDirectory()) &&

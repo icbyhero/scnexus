@@ -1,9 +1,10 @@
 import { join } from "node:path";
 import { mkdtemp, mkdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
+  detectGameRoot,
   getDocumentsPaths,
   getGameExecutables,
   getGameMapsDirName,
@@ -23,6 +24,10 @@ describe("isGameRootValid", () => {
     await rm(tmpRoot, { recursive: true, force: true });
   });
 
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it("returns false for empty path", async () => {
     expect(await isGameRootValid("")).toBe(false);
   });
@@ -32,20 +37,65 @@ describe("isGameRootValid", () => {
   });
 
   it("returns false when marker is missing", async () => {
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
     expect(await isGameRootValid(tmpRoot)).toBe(false);
   });
 
-  it("returns true when platform marker exists", async () => {
-    if (isDarwin) {
-      await mkdir(join(tmpRoot, "StarCraft II.app"), { recursive: true });
-    } else {
-      await mkdir(join(tmpRoot, "dummy"), { recursive: true });
-      // 非 darwin 平台用文件标记，模拟 win 的 StarCraft II.exe
-      const { writeFile } = await import("node:fs/promises");
-      await rm(join(tmpRoot, "dummy"), { recursive: true });
-      await writeFile(join(tmpRoot, "StarCraft II.exe"), "");
-    }
+  it("returns true when darwin marker (StarCraft II.app dir) exists", async () => {
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
+    await mkdir(join(tmpRoot, "StarCraft II.app"), { recursive: true });
     expect(await isGameRootValid(tmpRoot)).toBe(true);
+    await rm(join(tmpRoot, "StarCraft II.app"), { recursive: true });
+  });
+
+  it("returns true when win32 marker (StarCraft II.exe file) exists", async () => {
+    vi.stubGlobal("process", { ...process, platform: "win32" });
+    const { writeFile } = await import("node:fs/promises");
+    await writeFile(join(tmpRoot, "StarCraft II.exe"), "");
+    expect(await isGameRootValid(tmpRoot)).toBe(true);
+    await rm(join(tmpRoot, "StarCraft II.exe"));
+  });
+
+  it("returns false when gameRoot is a file (not a directory)", async () => {
+    const { writeFile } = await import("node:fs/promises");
+    const filePath = join(tmpRoot, "not-a-dir.txt");
+    await writeFile(filePath, "");
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
+    expect(await isGameRootValid(filePath)).toBe(false);
+    await rm(filePath);
+  });
+});
+
+describe("detectGameRoot", () => {
+  let tmpRoot: string;
+
+  beforeAll(async () => {
+    tmpRoot = await mkdtemp(join(tmpdir(), "scnexus-detect-"));
+  });
+
+  afterAll(async () => {
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("returns the first valid candidate", async () => {
+    const validDir = join(tmpRoot, "valid");
+    await mkdir(join(validDir, "StarCraft II.app"), { recursive: true });
+    const invalidDir = join(tmpRoot, "invalid");
+    await mkdir(invalidDir, { recursive: true });
+
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
+    const result = await detectGameRoot([invalidDir, validDir]);
+    expect(result).toBe(validDir);
+  });
+
+  it("returns empty string when no candidate is valid", async () => {
+    vi.stubGlobal("process", { ...process, platform: "darwin" });
+    const result = await detectGameRoot([join(tmpRoot, "nope1"), join(tmpRoot, "nope2")]);
+    expect(result).toBe("");
   });
 });
 
