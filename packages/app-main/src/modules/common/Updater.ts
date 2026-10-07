@@ -12,6 +12,18 @@ export function initUpdaterModule() {
     return;
   }
 
+  // macOS 暂不支持自动更新（无 mac 更新源、应用未签名）。
+  // 注册空 handler 使渲染层启动时及周期性的检查静默返回，避免向更新
+  // 服务器发起请求被 403 拦截而弹出「后台错误」。未来支持 mac 更新时移除。
+  if (process.platform === "darwin") {
+    Logger.info("Updater disabled on darwin (mac auto-update not supported)");
+    ipcHandle("updater:check-for-updates-and-notify", () => null);
+    ipcHandle("updater:check-for-updates", () => null);
+    ipcHandle("updater:download-update", () => null);
+    ipcHandle("updater:quit-and-install", () => null);
+    return;
+  }
+
   updater = new NsisUpdater({
     provider: "generic",
     // requestHeaders: {
