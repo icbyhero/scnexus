@@ -1,5 +1,6 @@
 import { defineConfig, presetUno, presetIcons } from "unocss";
 import transformerDirectives from "@unocss/transformer-directives";
+import { icons as tablerIcons } from "@iconify-json/tabler";
 
 export default defineConfig({
   shortcuts: [
@@ -13,7 +14,17 @@ export default defineConfig({
     },
   ],
   theme: {},
-  presets: [presetUno(), presetIcons()],
+  presets: [
+    presetUno(),
+    presetIcons({
+      // 显式传入图标集合。必须用函数形式（lazy loader）：presetIcons
+      // 仅在集合为函数时才按 IconifyJSON 结构（{ icons: {...} }）解析；
+      // 直接传对象会被当成 { [图标名]: SVG } 扁平映射，导致图标静默丢失。
+      collections: {
+        tabler: () => tablerIcons,
+      },
+    }),
+  ],
   transformers: [transformerDirectives()],
   safelist: [
     ...[
