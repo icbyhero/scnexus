@@ -20,6 +20,7 @@
   "devDependencies": {
     "@scnexus/app-shared": "workspace:*",
     "@types/adm-zip": "^0.5.7",
+    "@types/node": "^20",
     "@types/node-7z": "^2.1.10",
     "@types/semver": "^7.5.8",
     "@types/uuid": "^10.0.0",
