@@ -1,6 +1,19 @@
 import { join, dirname, basename } from "node:path";
-import { existsSync, renameSync, rmSync, mkdirSync } from "node:fs";
-import { access, mkdir } from "node:fs/promises";
+import {
+  existsSync,
+  renameSync,
+  rmSync,
+  mkdirSync,
+  statSync,
+} from "node:fs";
+import {
+  access,
+  cp,
+  mkdir,
+  readdir,
+  readFile,
+  stat,
+} from "node:fs/promises";
 
 import { Logger } from "@/utils/logger";
 
@@ -11,10 +24,12 @@ import { analyse } from "chardet";
 
 import { MetadataStandard } from "scnexus-standard/metadata";
 import {
+  buildEntryInfoFromEntries,
   ccmMetadataParser,
   generateZipEntryTree,
   generateZipEntryInfo7z,
   scnexusMetadataParser,
+  type EntryLike,
 } from "./customize-util";
 
 import { profileStore } from "@/stores/profile";
@@ -130,9 +145,95 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
   };
 }
 
+/**
+ * 递归遍历目录，返回所有文件相对于 root 的 POSIX 路径与大小。
+ */
+async function walkDirectory(
+  root: string
+): Promise<{ relPath: string; size: number }[]> {
+  const out: { relPath: string; size: number }[] = [];
+  async function walk(dir: string, prefix: string) {
+    const items = await readdir(dir, { withFileTypes: true });
+    for (const item of items) {
+      if (item.name === ".DS_Store") continue;
+      const rel = prefix ? `${prefix}/${item.name}` : item.name;
+      if (item.isDirectory()) {
+        await walk(join(dir, item.name), rel);
+      } else if (item.isFile()) {
+        const st = await stat(join(dir, item.name));
+        out.push({ relPath: rel, size: st.size });
+      }
+    }
+  }
+  await walk(root, "");
+  return out;
+}
+
+/**
+ * 读取一个已解压目录的信息（元数据、文件树、统计），
+ * 返回与 readCompressFileInfo7z 相同的 CompressFileInfo 结构。
+ */
+export async function readDirectoryInfo(
+  dir_path: string
+): Promise<CompressFileInfo | null> {
+  const files = await walkDirectory(dir_path);
+
+  let metadata: MetadataStandard | undefined;
+  let ccmMetadata: MetadataStandard | undefined;
+  let ccmMetadataRoot: string | undefined;
+
+  let size = 0;
+
+  for (const f of files) {
+    const name = basename(f.relPath);
+    if (name === "metadata.json") {
+      const buffer = await readFile(join(dir_path, f.relPath));
+      metadata = scnexusMetadataParser(buffer.toString());
+    }
+    if (name === "metadata.txt") {
+      const buffer = await readFile(join(dir_path, f.relPath));
+      ccmMetadata = ccmMetadataParser(buffer.toString());
+      ccmMetadataRoot = dirname(f.relPath);
+    }
+    size += f.size;
+  }
+
+  if (!metadata && !ccmMetadata) return null;
+
+  const entries: EntryLike[] = files.map((f) => ({ file: f.relPath }));
+  const { cfTree, cfList } = buildEntryInfoFromEntries(entries, dir_path);
+
+  return {
+    metadata: metadata,
+    ccm: {
+      metadata: ccmMetadata,
+      metadata_root: ccmMetadataRoot,
+    },
+    compress_info: {
+      size: size,
+      size_compressed: 0,
+      files_count: files.length,
+      fn_encoding: "utf8",
+    },
+    entry_tree: cfTree,
+    entry_list: cfList,
+  };
+}
+
 export async function readCompressFileInfo7z(
   cf_path: string
 ): Promise<CompressFileInfo | null> {
+  let isDirectory = false;
+  try {
+    isDirectory = statSync(cf_path).isDirectory();
+  } catch (err) {
+    Logger.error(err);
+    return null;
+  }
+  if (isDirectory) {
+    return readDirectoryInfo(cf_path);
+  }
+
   let metadata: MetadataStandard | undefined;
 
   let ccmMetadata: MetadataStandard | undefined;
@@ -314,16 +415,26 @@ export async function installCompressFile7z(
     metadata.name.replace(/[\~\!\@\#\$\%\^\&\*\"\|\:\<\>\/\\\\]/g, "")
   );
 
-  await access(targetPath).catch(
-    async () => await mkdir(targetPath, { recursive: true })
-  );
-
-  await szExtractFullPromisify(cf_path, targetPath).catch((err) => {
-    Logger.error(
-      `[CUSTOMIZE] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
+  if (statSync(cf_path).isDirectory()) {
+    // 源是已解压目录：直接递归拷贝，不执行解压
+    await cp(cf_path, targetPath, { recursive: true }).catch((err) => {
+      Logger.error(
+        `[CUSTOMIZE] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
+      );
+      throw new Error(UNCOMPRESSING_ERROR);
+    });
+  } else {
+    await access(targetPath).catch(
+      async () => await mkdir(targetPath, { recursive: true })
     );
-    throw new Error(UNCOMPRESSING_ERROR);
-  });
+
+    await szExtractFullPromisify(cf_path, targetPath).catch((err) => {
+      Logger.error(
+        `[CUSTOMIZE] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
+      );
+      throw new Error(UNCOMPRESSING_ERROR);
+    });
+  }
 
   return {
     metadata: metadata,

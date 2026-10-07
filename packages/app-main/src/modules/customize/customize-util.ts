@@ -174,6 +174,25 @@ export function generateZipEntryTree(cf_path: string) {
 }
 
 export async function generateZipEntryInfo7z(cf_path: string) {
+  const entries = await szListFull(cf_path);
+  return buildEntryInfoFromEntries(entries, cf_path);
+}
+
+/**
+ * 最小的条目结构，node-7z 的 Data 与目录遍历结果都满足该结构。
+ */
+export interface EntryLike {
+  file: string;
+  attributes?: string;
+}
+
+/**
+ * 根据条目列表（压缩包条目或目录内文件）构建条目树与扁平列表。
+ */
+export function buildEntryInfoFromEntries(
+  entries: EntryLike[],
+  cf_path: string
+): { cfTree: CompressFileTree; cfList: CompressFileList } {
   const cfTree: CompressFileTree = {
     cf_path,
     name: basename(cf_path),
@@ -190,8 +209,6 @@ export async function generateZipEntryInfo7z(cf_path: string) {
     name: basename(cf_path),
     files: [],
   };
-
-  const entries = await szListFull(cf_path);
 
   for (const entry of entries) {
     const fullPath = entry.file;

@@ -49,11 +49,14 @@ async function onClick() {
 
   const { data } = await ipcDialog.showOpenDialog({
     title: t("customize.drop-zone.select-file-title"),
-    properties: ["openFile"],
+    // mac 上 openFile + openDirectory 同时存在时，默认选择压缩包文件；
+    // 通过面板“显示选项”可切换为选择文件夹（已解压的模组目录）。
+    properties: ["openFile", "openDirectory"],
     filters: [
-      { name: "SCNexus Compressed File", extensions: ["zip"] },
-      { name: "CCM Compressed File", extensions: ["zip"] },
-      { name: "ZIP Compressed File", extensions: ["zip"] },
+      {
+        name: "SCNexus Compressed File",
+        extensions: ["zip", "rar", "7z"],
+      },
     ],
   });
   if (!data) return;

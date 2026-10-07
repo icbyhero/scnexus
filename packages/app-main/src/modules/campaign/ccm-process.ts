@@ -1,5 +1,6 @@
 import { join, basename } from "node:path";
-import { readdir, rename } from "node:fs/promises";
+import { statSync } from "node:fs";
+import { cp, readdir, rename } from "node:fs/promises";
 
 import { ResultUncompressCCM } from "@scnexus/app-shared/types/campaign.type";
 import {
@@ -164,19 +165,34 @@ export async function unzipCompressFile7zSimulateCCM(
     throw new Error(METHOD_CCM_ONLY);
   }
 
+  const sourceIsDir = statSync(cf_path).isDirectory();
+  const packageName = sourceIsDir
+    ? basename(cf_path)
+    : basename(cf_path).replace(/\.(zip|rar|7z)$/i, "");
+
   const targetPath = join(
     profileStore.get("PROFILE_CAMPAIGN").CCM_ROOT,
-    basename(cf_path, ".zip")
+    packageName
   );
 
   await rmIfExist(targetPath);
 
-  await szExtractFullPromisify(cf_path, targetPath).catch((err) => {
-    Logger.error(
-      `[CAMPAIGN] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
-    );
-    throw new Error(UNCOMPRESSING_ERROR);
-  });
+  if (sourceIsDir) {
+    // 源是已解压目录：直接递归拷贝，不执行解压
+    await cp(cf_path, targetPath, { recursive: true }).catch((err) => {
+      Logger.error(
+        `[CAMPAIGN] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
+      );
+      throw new Error(UNCOMPRESSING_ERROR);
+    });
+  } else {
+    await szExtractFullPromisify(cf_path, targetPath).catch((err) => {
+      Logger.error(
+        `[CAMPAIGN] ${UNCOMPRESSING_ERROR}: error = ${err}, cf_path = ${cf_path}, targetPath = ${targetPath}`
+      );
+      throw new Error(UNCOMPRESSING_ERROR);
+    });
+  }
 
   const modsPath: string = profileStore.get("PROFILE_CAMPAIGN").MODS_ROOT;
 
