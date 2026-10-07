@@ -163,7 +163,7 @@ defineExpose({
           </template>
           <template #suffix>
             <span class="text-sm">
-              {{ $t("campaign.campaign-stat.stat-filecount-prefix") }}
+              {{ $t("campaign.campaign-stat.stat-filecount-suffix") }}
             </span>
           </template>
         </n-statistic>
