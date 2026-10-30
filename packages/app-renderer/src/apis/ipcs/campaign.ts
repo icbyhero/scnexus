@@ -17,10 +17,11 @@ export const ipcCampaign = {
       `${moduleChannel}:unzip-compress-file-simulate-ccm`,
       path
     ),
-  unzipCompressFile7zSimulateCCM: (path: string) =>
+  unzipCompressFile7zSimulateCCM: (path: string, campaign?: CampaignType) =>
     useIpcRendererInvoke<ResultUncompressCCM>(
       `${moduleChannel}:unzip-compress-file-7z-simulate-ccm`,
-      path
+      path,
+      campaign
     ),
 
   getCampaignLists: () =>

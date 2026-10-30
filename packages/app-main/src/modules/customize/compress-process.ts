@@ -24,13 +24,22 @@ import { analyse } from "chardet";
 
 import { MetadataStandard } from "scnexus-standard/metadata";
 import {
+  assertArchiveSizeSafe,
+  assertEntryPathSafe,
   buildEntryInfoFromEntries,
   ccmMetadataParser,
+  decodeTextBuffer,
   generateZipEntryTree,
   generateZipEntryInfo7z,
+  inferCampaignFromPaths,
+  sanitizePackageName,
   scnexusMetadataParser,
+  stripArchiveExtension,
+  synthesizePlainMetadata,
   type EntryLike,
 } from "./customize-util";
+
+import { detectArchiveFormat } from "@/utils/archive-magic";
 
 import { profileStore } from "@/stores/profile";
 import { szList } from "@/utils/7zip";
@@ -54,6 +63,15 @@ import {
 } from "@scnexus/app-shared/errors/customize.error";
 
 export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
+  // 魔数判断：此路径仅接受 zip；7z/rar 等交给 readCompressFileInfo7z，
+  // 改名或无扩展名的压缩包不再依赖扩展名分派。
+  if (detectArchiveFormat(cf_path) !== "zip") {
+    Logger.warn(
+      `[CUSTOMIZE] archive is not zip by magic bytes: cf_path = ${cf_path}`
+    );
+    return null;
+  }
+
   let zip: AdmZip;
   try {
     zip = getZip(cf_path);
@@ -73,7 +91,7 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
     .getEntries()
     .find((entry) => entry.entryName === "metadata.json");
   if (metadataEntry) {
-    const data = metadataEntry.getData().toString();
+    const data = decodeTextBuffer(metadataEntry.getData());
     metadata = scnexusMetadataParser(data);
   }
 
@@ -81,7 +99,7 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
     .getEntries()
     .find((entry) => entry.name === "metadata.json");
   if (metadataEntry) {
-    const data = metadataEntry.getData().toString();
+    const data = decodeTextBuffer(metadataEntry.getData());
     ccmMetadata = scnexusMetadataParser(data);
     ccmMetadataRoot = metadataEntry.entryName.split(metadataEntry.name)[0];
   }
@@ -90,22 +108,22 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
     .getEntries()
     .find((entry) => entry.name === "metadata.txt");
   if (metadataEntry) {
-    const data = metadataEntry.getData().toString();
+    const data = decodeTextBuffer(metadataEntry.getData());
     ccmMetadata = ccmMetadataParser(data);
     ccmMetadataRoot = metadataEntry.entryName.split(metadataEntry.name)[0];
-  }
-
-  if (!metadata && !ccmMetadata) {
-    return null;
   }
 
   let size: number = 0;
   let compressedSize: number = 0;
   let fn_encoding: string = "utf8";
-  zip.getEntries().map((entry) => {
+
+  // 安全闸门：逐条校验条目路径（zip-slip），累计解压后体积。
+  const entryNames: string[] = [];
+  for (const entry of zip.getEntries()) {
+    assertEntryPathSafe(entry.entryName);
+    entryNames.push(entry.entryName);
     size += entry.header.size;
     compressedSize += entry.header.compressedSize;
-    // if (entry.entryName.search(/\p{sc=Han}/gu) > -1) fn_encoding = "gb18030";
 
     if (fn_encoding === "utf8") {
       const encoding = analyse(entry.rawEntryName);
@@ -125,9 +143,38 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
         }
       }
     }
-  });
+  }
+  assertArchiveSizeSafe(size, zip.getEntries().length);
 
   const entry_tree = generateZipEntryTree(cf_path);
+
+  const compress_info = {
+    size: size,
+    size_compressed: compressedSize,
+    files_count: zip.getEntryCount(),
+    fn_encoding: fn_encoding,
+    format: "zip" as const,
+  };
+
+  if (!metadata && !ccmMetadata) {
+    // Plain 包：包内没有任何元数据，不再直接拒绝——合成元数据并标记 plain，
+    // 由战役流程按文件名降级安装，战役归属由用户指定。
+    Logger.warn(
+      `[CUSTOMIZE] no metadata found, treat as plain package: cf_path = ${cf_path}`
+    );
+    return {
+      metadata: undefined,
+      ccm: {
+        metadata: synthesizePlainMetadata(
+          stripArchiveExtension(basename(cf_path)),
+          inferCampaignFromPaths(entryNames)
+        ),
+        plain: true,
+      },
+      compress_info: compress_info,
+      entry_tree: entry_tree ?? undefined,
+    };
+  }
 
   return {
     metadata: metadata,
@@ -135,12 +182,7 @@ export function readCompressFileInfo(cf_path: string): CompressFileInfo | null {
       metadata: ccmMetadata,
       metadata_root: ccmMetadataRoot,
     },
-    compress_info: {
-      size: size,
-      size_compressed: compressedSize,
-      files_count: zip.getEntryCount(),
-      fn_encoding: fn_encoding,
-    },
+    compress_info: compress_info,
     entry_tree: entry_tree ?? undefined,
   };
 }
@@ -188,20 +230,43 @@ export async function readDirectoryInfo(
     const name = basename(f.relPath);
     if (name === "metadata.json") {
       const buffer = await readFile(join(dir_path, f.relPath));
-      metadata = scnexusMetadataParser(buffer.toString());
+      metadata = scnexusMetadataParser(decodeTextBuffer(buffer));
     }
     if (name === "metadata.txt") {
       const buffer = await readFile(join(dir_path, f.relPath));
-      ccmMetadata = ccmMetadataParser(buffer.toString());
+      ccmMetadata = ccmMetadataParser(decodeTextBuffer(buffer));
       ccmMetadataRoot = dirname(f.relPath);
     }
     size += f.size;
   }
 
-  if (!metadata && !ccmMetadata) return null;
-
   const entries: EntryLike[] = files.map((f) => ({ file: f.relPath }));
   const { cfTree, cfList } = buildEntryInfoFromEntries(entries, dir_path);
+
+  if (!metadata && !ccmMetadata) {
+    // Plain 目录：没有任何元数据时同样降级为 plain 包处理。
+    Logger.warn(
+      `[CUSTOMIZE] no metadata found, treat as plain package: dir_path = ${dir_path}`
+    );
+    return {
+      metadata: undefined,
+      ccm: {
+        metadata: synthesizePlainMetadata(
+          basename(dir_path),
+          inferCampaignFromPaths(files.map((f) => f.relPath))
+        ),
+        plain: true,
+      },
+      compress_info: {
+        size: size,
+        size_compressed: 0,
+        files_count: files.length,
+        fn_encoding: "utf8",
+      },
+      entry_tree: cfTree,
+      entry_list: cfList,
+    };
+  }
 
   return {
     metadata: metadata,
@@ -245,11 +310,26 @@ export async function readCompressFileInfo7z(
 
   let fn_encoding: string = "utf8";
 
+  // 魔数判断只用于报告容器格式；解包统一交给 7zz（其支持 zip/rar/7z 等）。
+  const format = detectArchiveFormat(cf_path);
+
   let promiseList: Promise<void>[] = [];
+  const entryPaths: string[] = [];
+  // 闸门校验错误不能在流回调里直接抛出（会被 EventEmitter 吞掉），
+  // 先记录，流结束后统一抛出。
+  let gateError: Error | undefined;
   const result = await new Promise<boolean>((resolve, reject) =>
     szList(cf_path, { charset: "UTF-8" })
       .on("data", async (data) => {
         const dataProcessPromise = async () => {
+          if (gateError) return;
+          try {
+            assertEntryPathSafe(data.file);
+          } catch (err) {
+            gateError = err as Error;
+            return;
+          }
+          entryPaths.push(data.file);
           if (fn_encoding === "utf8") {
             const encoding = analyse(Buffer.from(data.file));
             if (
@@ -262,14 +342,12 @@ export async function readCompressFileInfo7z(
           }
           const name = basename(data.file);
           if (name === "metadata.json") {
-            console.log("metadata.json");
             const buffer = await szReadFile(cf_path, name);
-            metadata = scnexusMetadataParser(buffer.toString());
+            metadata = scnexusMetadataParser(decodeTextBuffer(buffer));
           }
           if (name === "metadata.txt") {
-            console.log("metadata.txt");
             const buffer = await szReadFile(cf_path, name);
-            ccmMetadata = ccmMetadataParser(buffer.toString());
+            ccmMetadata = ccmMetadataParser(decodeTextBuffer(buffer));
             ccmMetadataRoot = dirname(data.file);
           }
           files_count += 1;
@@ -282,7 +360,6 @@ export async function readCompressFileInfo7z(
         resolve(true);
       })
       .on("error", (e) => {
-        console.error(e);
         Logger.error(e);
         reject(e);
       })
@@ -290,7 +367,46 @@ export async function readCompressFileInfo7z(
 
   if (!result) return null;
   await Promise.all(promiseList);
+
+  if (gateError) {
+    Logger.warn(
+      `[CUSTOMIZE] unsafe archive entry rejected: cf_path = ${cf_path}, error = ${gateError.message}`
+    );
+    throw gateError;
+  }
+  // 安全闸门：zip bomb 防护（解压总量 / 条目数）。
+  assertArchiveSizeSafe(size, files_count);
+
   const { cfList, cfTree } = await generateZipEntryInfo7z(cf_path);
+
+  const compress_info = {
+    size: size,
+    size_compressed: compressedSize,
+    files_count: files_count,
+    fn_encoding: fn_encoding,
+    format: format,
+  };
+
+  if (!metadata && !ccmMetadata) {
+    // Plain 包：包内没有任何元数据，不再直接拒绝——合成元数据并标记 plain，
+    // 由战役流程按文件名降级安装，战役归属由用户指定。
+    Logger.warn(
+      `[CUSTOMIZE] no metadata found, treat as plain package: cf_path = ${cf_path}`
+    );
+    return {
+      metadata: undefined,
+      ccm: {
+        metadata: synthesizePlainMetadata(
+          stripArchiveExtension(basename(cf_path)),
+          inferCampaignFromPaths(entryPaths)
+        ),
+        plain: true,
+      },
+      compress_info: compress_info,
+      entry_tree: cfTree ?? undefined,
+      entry_list: cfList ?? undefined,
+    };
+  }
 
   return {
     metadata: metadata,
@@ -298,12 +414,7 @@ export async function readCompressFileInfo7z(
       metadata: ccmMetadata,
       metadata_root: ccmMetadataRoot,
     },
-    compress_info: {
-      size: size,
-      size_compressed: compressedSize,
-      files_count: files_count,
-      fn_encoding: fn_encoding,
-    },
+    compress_info: compress_info,
     entry_tree: cfTree ?? undefined,
     entry_list: cfList ?? undefined,
   };
@@ -346,9 +457,12 @@ export async function installCompressFile(
     throw new Error(METHOD_TYPE_UNSUPPORTED);
   }
 
+  // 元数据缺 name 时退回压缩包文件名，避免拼出 LIBRARY_ROOT 本身
   const targetPath = join(
     storePath,
-    metadata.name.replace(/[\~\!\@\#\$\%\^\&\*\"\|\:\<\>\/\\\\]/g, "")
+    sanitizePackageName(metadata.name) ||
+      stripArchiveExtension(basename(cf_path)) ||
+      "Customize"
   );
 
   await access(targetPath).catch(
@@ -410,9 +524,12 @@ export async function installCompressFile7z(
     throw new Error(METHOD_TYPE_UNSUPPORTED);
   }
 
+  // 元数据缺 name 时退回压缩包文件名，避免拼出 LIBRARY_ROOT 本身
   const targetPath = join(
     storePath,
-    metadata.name.replace(/[\~\!\@\#\$\%\^\&\*\"\|\:\<\>\/\\\\]/g, "")
+    sanitizePackageName(metadata.name) ||
+      stripArchiveExtension(basename(cf_path)) ||
+      "Customize"
   );
 
   if (statSync(cf_path).isDirectory()) {

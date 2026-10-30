@@ -15,7 +15,12 @@
         "negative-text": "Cancel",
         "positive-text": "Install",
         "message-success-title": "Successfully Installed.",
-        "message-success-content": "Decompressed {count} files."
+        "message-success-content": "Decompressed {count} files.",
+        "plain-tip": "No metadata found in this archive. It will be installed as a campaign package named after the file. Select its campaign:",
+        "campaign-wol": "Wings of Liberty",
+        "campaign-hots": "Heart of the Swarm",
+        "campaign-lotv": "Legacy of the Void",
+        "campaign-nco": "Nova Covert Ops"
       },
       "no-game-message": {
         "title": "No installed StarCraft II game client detected.",

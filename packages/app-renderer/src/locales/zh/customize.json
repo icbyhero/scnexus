@@ -16,6 +16,11 @@
         "positive-text": "确认安装",
         "message-success-title": "已成功安装",
         "message-success-content": "已解压安装 {count} 个文件",
+        "plain-tip": "该压缩包未包含元数据，将按文件名安装为战役包，请选择所属战役：",
+        "campaign-wol": "自由之翼",
+        "campaign-hots": "虫群之心",
+        "campaign-lotv": "虚空之遗",
+        "campaign-nco": "诺娃隐秘行动",
         "cfi-error-title": "读取压缩包失败",
         "cfi-error-message": "文件格式错误或压缩包内未包含有效元数据"
       },

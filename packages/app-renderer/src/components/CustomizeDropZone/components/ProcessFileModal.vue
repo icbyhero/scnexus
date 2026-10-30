@@ -3,12 +3,13 @@ import { computed, h, inject, ref } from "vue";
 import { useI18n } from "vue-i18n";
 
 import { filesize } from "filesize";
+import { get, set } from "@vueuse/core";
+import type { CampaignType } from "scnexus-standard/metadata";
 import { KEY_FILEPATH, KEY_CFI } from "../symbol";
 
 import { emitterEmit } from "@/composables/useMitt";
 import { ipcCampaign } from "@/apis/ipcs/campaign";
 import { ipcCustomize } from "@/apis/ipcs/customize";
-import { get, set } from "@vueuse/core";
 import { useNotification } from "naive-ui";
 
 const { t } = useI18n();
@@ -24,6 +25,15 @@ const metadata = computed(() =>
     ? get(cfi)?.metadata
     : get(cfi)?.ccm?.metadata
 );
+// Plain 包：压缩包内没有任何元数据，按文件名安装，战役归属由用户选择。
+const isPlain = computed(() => !!get(cfi)?.ccm?.plain);
+const campaignOptions = [
+  { label: () => t("customize.drop-zone.process-dialog.campaign-wol"), value: "WOL" },
+  { label: () => t("customize.drop-zone.process-dialog.campaign-hots"), value: "HOTS" },
+  { label: () => t("customize.drop-zone.process-dialog.campaign-lotv"), value: "LOTV" },
+  { label: () => t("customize.drop-zone.process-dialog.campaign-nco"), value: "NCO" },
+];
+const selectedCampaign = ref<CampaignType>("WOL");
 const file_path = inject(KEY_FILEPATH);
 
 const onContinuProcess = async () => {
@@ -45,8 +55,10 @@ const onContinuProcess = async () => {
         result = true;
       }
     } else if (vMetadata?.manager === "CCM") {
+      // Plain 包时附带用户选择的战役归属，后台按文件名降级安装。
       const { data, error } = await ipcCampaign.unzipCompressFile7zSimulateCCM(
-        vPath!
+        vPath!,
+        get(isPlain) ? get(selectedCampaign) : undefined
       );
       if (error) {
         console.error(error);
@@ -88,8 +100,12 @@ const onContinuProcess = async () => {
 };
 
 const open = () => {
+  // Plain 包默认选中包内路径推断出的战役（没有推断结果时保持 WOL）。
+  const inferred = get(cfi)?.ccm?.metadata?.campaign;
+  if (inferred) {
+    set(selectedCampaign, inferred);
+  }
   set(showModal, true);
-  console.log(cfi);
 };
 
 const close = () => {
@@ -122,6 +138,15 @@ defineExpose({ open });
       </div>
     </template>
     <div class="flex flex-col gap-1">
+      <div v-if="isPlain" class="flex flex-col gap-1 cell-normal">
+        <div>
+          {{ t("customize.drop-zone.process-dialog.plain-tip") }}
+        </div>
+        <n-select
+          v-model:value="selectedCampaign"
+          :options="campaignOptions"
+        />
+      </div>
       <div class="flex flex-col gap-1 cell-normal">
         <div>
           {{
